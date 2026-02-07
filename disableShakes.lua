@@ -3,7 +3,6 @@ uevrUtils.initUEVR(uevr)
 
 local api = uevr.api
 
---new line for test
 -- Utility 
 local function find_required_class(path)
     local obj = api:find_uobject(path)
