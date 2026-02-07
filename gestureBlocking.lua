@@ -2,25 +2,68 @@ local api = uevr.api
 local vr = uevr.params.vr
 local callbacks = uevr.sdk.callbacks
 
-local config = {
+local config_filename = "gestureBlocking_config"
+
+-- Default configuration
+local default_config = {
     blockMinForwardDistance = 10.0,    -- Minimum forward distance (cm)
     blockMaxForwardDistance = 40.0,    -- Maximum forward distance (cm)
-    blockMaxRadialDistance = 30.0,     -- Max distance from center line (cm)
     requirePalmOutward = true,         -- Hand must face away from HMD
     palmDotThreshold = 0.0,            -- How strict the palm check is (more negative = stricter)
-    blockHand = Handed.Left,           -- Primary blocking hand
+    blockHand = 0,                     -- Primary blocking hand (0 = Left, 1 = Right)
     enableTwoHandedBlock = false,      -- If true, requires BOTH hands in position
     twoHandedMaxDistance = 25.0,       -- Max distance between hands for two-handed block (cm)
-    showDebugWindow = false,           -- Show real-time distance values in GUI
 }
+
+-- Current configuration (will be loaded from file if exists)
+local config = {}
+for k, v in pairs(default_config) do
+    config[k] = v
+end
+-- Convert blockHand from number to enum
+config.blockHand = Handed.Left
+
+-- Save configuration to JSON file
+local function save_config()
+    -- Create a copy of config for saving
+    local save_data = {}
+    for k, v in pairs(config) do
+        save_data[k] = v
+    end
+
+    -- Convert blockHand enum to number for JSON
+    save_data.blockHand = (config.blockHand == Handed.Left) and 0 or 1
+
+    json.dump_file(config_filename .. ".json", save_data, 4)
+end
+
+-- Load configuration from JSON file
+local function load_config()
+    local loaded_config = json.load_file(config_filename .. ".json")
+
+    if loaded_config then
+        -- Merge loaded config with current config
+        for k, v in pairs(loaded_config) do
+            if k == "blockHand" then
+                -- Convert number back to enum
+                config[k] = (v == 0) and Handed.Left or Handed.Right
+            else
+                config[k] = v
+            end
+        end
+        return true
+    else
+        return false
+    end
+end
+
+-- Load config at startup
+load_config()
 
 local blockState = {
     isBlocking = false,
     wasBlocking = false,
     isTwoHandedBlock = false,
-    lastForwardDistance = 0,
-    lastRadialDistance = 0,
-    lastPalmDot = 0,
 }
 
 local function quatToForward(quat)
@@ -53,7 +96,7 @@ local function dot(a, b)
     return a.x * b.x + a.y * b.y + a.z * b.z
 end
 
-local function checkHandBlocking(hand_index, hmd_pos, hmd_rot, hmd_forward, debugPrefix)
+local function checkHandBlocking(hand_index, hmd_pos, hmd_rot, hmd_forward)
     if hand_index == -1 then
         return false
     end
@@ -69,38 +112,15 @@ local function checkHandBlocking(hand_index, hmd_pos, hmd_rot, hmd_forward, debu
     }
     
     local forwardDistance = dot(offset, hmd_forward) * -100
-    
-    local forwardProjection = {
-        x = hmd_forward.x * dot(offset, hmd_forward),
-        y = hmd_forward.y * dot(offset, hmd_forward),
-        z = hmd_forward.z * dot(offset, hmd_forward)
-    }
-    
-    local radial = {
-        x = offset.x - forwardProjection.x,
-        y = offset.y - forwardProjection.y,
-        z = offset.z - forwardProjection.z
-    }
-    
-    local radialDistance = math.sqrt(radial.x*radial.x + radial.y*radial.y + radial.z*radial.z) * 100
-    
-    blockState.lastForwardDistance = forwardDistance
-    blockState.lastRadialDistance = radialDistance
 
     if forwardDistance < config.blockMinForwardDistance or forwardDistance > config.blockMaxForwardDistance then
-        return false
-    end
-    
-    if radialDistance > config.blockMaxRadialDistance then
         return false
     end
     
     if config.requirePalmOutward then
         local hand_up = quatToUp(hand_rot)
         local palmDot = dot(hand_up, hmd_forward)
-        
-        blockState.lastPalmDot = palmDot
-        
+
         if palmDot > config.palmDotThreshold then
             return false
         end
@@ -126,9 +146,9 @@ local function detectBlockGesture()
         -- TWO-HANDED BLOCKING MODE
         local left_index = vr.get_left_controller_index()
         local right_index = vr.get_right_controller_index()
-        
-        local leftBlocking = checkHandBlocking(left_index, hmd_pos, hmd_rot, hmd_forward, "LEFT")
-        local rightBlocking = checkHandBlocking(right_index, hmd_pos, hmd_rot, hmd_forward, "RIGHT")
+
+        local leftBlocking = checkHandBlocking(left_index, hmd_pos, hmd_rot, hmd_forward)
+        local rightBlocking = checkHandBlocking(right_index, hmd_pos, hmd_rot, hmd_forward)
         
         if leftBlocking and rightBlocking then
             if config.twoHandedMaxDistance > 0 then
@@ -161,7 +181,7 @@ local function detectBlockGesture()
         -- SINGLE-HANDED BLOCKING MODE
         local hand_index = config.blockHand == Handed.Left and vr.get_left_controller_index() or vr.get_right_controller_index()
         blockState.isTwoHandedBlock = false
-        return checkHandBlocking(hand_index, hmd_pos, hmd_rot, hmd_forward, config.blockHand == Handed.Left and "LEFT" or "RIGHT")
+        return checkHandBlocking(hand_index, hmd_pos, hmd_rot, hmd_forward)
     end
 end
 
@@ -173,17 +193,10 @@ callbacks.on_xinput_get_state(function(retval, user_index, state)
     local gestureActive = detectBlockGesture()
     
     blockState.isBlocking = gestureActive
-    
-    if gestureActive and not blockState.wasBlocking then
-        if blockState.isTwoHandedBlock then
-            print("[Block] TWO-HANDED BLOCKING ACTIVATED")
-        else
-            print("[Block] BLOCKING ACTIVATED")
-        end
-    elseif not gestureActive and blockState.wasBlocking then
-        print("[Block] BLOCKING DEACTIVATED")
-    end
-    
+
+    -- Set global variable for other scripts to read
+    _G.GESTURE_BLOCK_ACTIVE = gestureActive
+
     blockState.wasBlocking = gestureActive
     
     if gestureActive then
@@ -193,13 +206,43 @@ end)
 
 -- ImGui Configuration Window
 uevr.lua.add_script_panel("Gesture based blocking", function()
-    
+
+    imgui.text("=== CONFIG MANAGEMENT ===")
+    imgui.text("Config file: " .. config_filename .. ".json")
+
+    if imgui.button("Save Config") then
+        save_config()
+    end
+
+    imgui.same_line()
+
+    if imgui.button("Load Config") then
+        load_config()
+    end
+
+    imgui.same_line()
+
+    if imgui.button("Reset to Defaults") then
+        for k, v in pairs(default_config) do
+            if k == "blockHand" then
+                config[k] = Handed.Left
+            else
+                config[k] = v
+            end
+        end
+    end
+
+    imgui.text("Tip: Adjust settings below, then click 'Save Config' to persist across script resets")
+
+    imgui.spacing()
+    imgui.separator()
+    imgui.spacing()
+
     imgui.text("=== BLOCKING MODE ===")
     
     local twoHandedChanged, twoHandedValue = imgui.checkbox("Two-Handed Block", config.enableTwoHandedBlock)
     if twoHandedChanged then
         config.enableTwoHandedBlock = twoHandedValue
-        print(string.format("[Block] Two-handed mode: %s", twoHandedValue and "ENABLED" or "DISABLED"))
     end
     
     if not config.enableTwoHandedBlock then
@@ -211,7 +254,6 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
         local handChanged, newHandIndex = imgui.combo("##BlockHand", currentHandIndex, handOptions)
         if handChanged then
             config.blockHand = newHandIndex == 1 and Handed.Left or Handed.Right
-            print(string.format("[Block] Block hand: %s", newHandIndex == 1 and "LEFT" or "RIGHT"))
         end
     end
     
@@ -222,7 +264,7 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
     imgui.text("=== DISTANCE SETTINGS ===")
     
     imgui.text("Forward Distance (how far in front of face)")
-    local minForwardChanged, minForwardValue = imgui.drag_float("Min Forward (cm)", config.blockMinForwardDistance, 1.0, 5.0, 100.0)
+    local minForwardChanged, minForwardValue = imgui.drag_float("Min Forward (cm)", config.blockMinForwardDistance, 1.0, -60.0, 100.0)
     if minForwardChanged then
         config.blockMinForwardDistance = minForwardValue
     end
@@ -231,15 +273,7 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
     if maxForwardChanged then
         config.blockMaxForwardDistance = maxForwardValue
     end
-    
-    imgui.spacing()
-    
-    imgui.text("Radial Distance (left/right/up/down from center)")
-    local maxRadialChanged, maxRadialValue = imgui.drag_float("Max Radial (cm)", config.blockMaxRadialDistance, 1.0, 5.0, 100.0)
-    if maxRadialChanged then
-        config.blockMaxRadialDistance = maxRadialValue
-    end
-    
+
     if config.enableTwoHandedBlock then
         imgui.spacing()
         imgui.text("Two-Handed Settings")
@@ -267,83 +301,60 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
         end
         imgui.text("(More negative = stricter palm check)")
     end
-    
+
     imgui.spacing()
     imgui.separator()
     imgui.spacing()
-    
-    imgui.text("=== DEBUG OPTIONS ===")
-    
-    local debugWindowChanged, debugWindowValue = imgui.checkbox("Show Debug Window", config.showDebugWindow)
-    if debugWindowChanged then
-        config.showDebugWindow = debugWindowValue
-    end
-    
-    imgui.spacing()
-    imgui.separator()
-    imgui.spacing()
-    
+
     -- Quick Presets
     imgui.text("=== QUICK PRESETS ===")
     
     if imgui.button("Default") then
-        config.blockMinForwardDistance = 10.0
-        config.blockMaxForwardDistance = 40.0
-        config.blockMaxRadialDistance = 30.0
-        config.requirePalmOutward = true
-        config.palmDotThreshold = 0.0 
-        config.blockHand = Handed.Left 
-        config.twoHandedMaxDistance = 25.0 
-        config.enableTwoHandedBlock = false
-        config.showDebugWindow = false
-        print("[Block] Preset: Default")
-    end
-    
-    imgui.same_line()
-    
-    if imgui.button("Tight Block (Close Range)") then
-        config.blockMinForwardDistance = 10.0
-        config.blockMaxForwardDistance = 30.0
-        config.blockMaxRadialDistance = 20.0
-        config.requirePalmOutward = true
-        config.palmDotThreshold = -0.2 
-        config.twoHandedMaxDistance = 25.0 
-        print("[Block] Preset: Tight Block")
-    end
-    
-    imgui.same_line()
-    
-    if imgui.button("Loose Block (Wide Range)") then
-        config.blockMinForwardDistance = 10.0
-        config.blockMaxForwardDistance = 60.0
-        config.blockMaxRadialDistance = 40.0
-        config.requirePalmOutward = true
-        config.palmDotThreshold = 0.2 
-        config.twoHandedMaxDistance = 50.0 
-        print("[Block] Preset: Loose Block")
-    end
-    
-    -- Debug Window (if enabled)
-    if config.showDebugWindow then
-        imgui.begin_window("Blocking Debug Values", true, 0)
-        
-        imgui.text("=== REAL-TIME VALUES ===")
-        imgui.text(string.format("Forward Distance: %.1f cm", blockState.lastForwardDistance))
-        imgui.text(string.format("Radial Distance: %.1f cm", blockState.lastRadialDistance))
-        imgui.text(string.format("Palm Dot: %.2f", blockState.lastPalmDot))
-        
-        imgui.spacing()
-        imgui.separator()
-        imgui.spacing()
-        
-        imgui.text("=== CURRENT THRESHOLDS ===")
-        imgui.text(string.format("Forward Range: %.1f - %.1f cm", config.blockMinForwardDistance, config.blockMaxForwardDistance))
-        imgui.text(string.format("Max Radial: %.1f cm", config.blockMaxRadialDistance))
-        if config.requirePalmOutward then
-            imgui.text(string.format("Palm Threshold: %.2f", config.palmDotThreshold))
+        -- Reset to defaults
+        for k, v in pairs(default_config) do
+            if k == "blockHand" then
+                config[k] = Handed.Left
+            else
+                config[k] = v
+            end
         end
-        
-
-        imgui.end_window()
+        save_config()
     end
+
+    imgui.same_line()
+
+    if imgui.button("Tight Block (Close Range)") then
+        -- Reset to defaults first
+        for k, v in pairs(default_config) do
+            if k == "blockHand" then
+                config[k] = Handed.Left
+            else
+                config[k] = v
+            end
+        end
+        -- Apply tight block settings
+        config.blockMaxForwardDistance = 30.0
+        config.palmDotThreshold = -0.2
+        save_config()
+    end
+
+    imgui.same_line()
+
+    if imgui.button("Loose Block (Wide Range)") then
+        -- Reset to defaults first
+        for k, v in pairs(default_config) do
+            if k == "blockHand" then
+                config[k] = Handed.Left
+            else
+                config[k] = v
+            end
+        end
+        -- Apply loose block settings
+        config.blockMaxForwardDistance = 60.0
+        config.palmDotThreshold = 0.2
+        config.twoHandedMaxDistance = 50.0
+        save_config()
+    end
+
+    imgui.text("(Presets automatically save)")
 end)
