@@ -18,12 +18,13 @@ These scripts are aiming to enhance the VR experience in Dead Island 2.
 
 ## Scripts
 
-- `audioSpatialFix.lua` – Forces the audio listener to follow the HMD correctly.
-- `disableShakes.lua` – Disables camera shake effects and camera animations to reduce VR motion discomfort.
-- `gesturePushing.lua` – Gesture based pushing/shoving, do a push gesture with both hands to activate the ingame push/kick action.
-- `Melee rate scale.lua` – Modified version of Vinion's original script, to prevent accidental attack action after a push/shove gesture.
-- `gestureBlocking.lua` – Gesture based blocking system, hold left or both hands up in front of your face with the palm facing outward to block. Can be configured.
-- `counterAimFix.lua` – Controls aiming method after a block, to prevent character turning around while swinging on a counter attack.
+- [Spatial audio fix](scripts/audioSpatialFix.lua) – Forces the audio listener to follow the HMD correctly.
+- [Disable Camera shakes](scripts/disableShakes.lua) – Disables camera shake effects and camera animations to reduce VR motion discomfort.
+- [Gesture based Push/Kick](scripts/gesturePushing.lua) – Gesture based pushing/shoving, do a push gesture with both hands to activate the ingame push/kick action.
+- [Melee rate scale](scripts/Melee%20rate%20scale.lua) – Modified version of Vinion's original script, to prevent accidental attack action after a push/shove gesture.
+- [Gesture based block](scripts/gestureBlocking.lua) – Gesture based blocking system, hold left or both hands up in front of your face with the palm facing outward to block. Can be configured.
+- [Counter attack aiming lock](scripts/counterAimFix.lua) – Controls aiming method after a block, to prevent character turning around while swinging on a counter attack.
+- [Physical crouching](scripts/physicalCrouching.lua) - You guessed it! You can crouch physically.
 
 ## Credits
 
