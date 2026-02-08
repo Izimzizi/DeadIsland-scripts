@@ -154,7 +154,7 @@ local function maintainCapsuleHeight()
     end
 
     local player = getPlayer()
-    if player == nil or player.CapsuleComponent == nil then
+    if player == nil then
         return
     end
 
@@ -168,13 +168,11 @@ local function executeCrouch(shouldCrouch)
     end
 
     if shouldCrouch then
-        if player.CapsuleComponent ~= nil and player.CapsuleComponent.GetUnscaledCapsuleHalfHeight ~= nil then
-            crouchOffsetActive = true
+        crouchOffsetActive = true
 
-            -- Crouch
-            if player.DoCrouch ~= nil then
-                player:DoCrouch()
-            end
+        -- Crouch
+        if player.DoCrouch ~= nil then
+            player:DoCrouch()
         end
     else
         if player.UnCrouch ~= nil then
