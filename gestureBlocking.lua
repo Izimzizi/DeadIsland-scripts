@@ -1,55 +1,43 @@
--- PERFORMANCE OPTIMIZATIONS APPLIED:
--- Optimization 4: Pose deduplication - Cached poses in two-handed mode to avoid duplicate queries
--- Expected frame time savings: 0.02-0.05ms per frame
-
 local api = uevr.api
 local vr = uevr.params.vr
 local callbacks = uevr.sdk.callbacks
 
 local config_filename = "gestureBlocking_config"
 
--- Default configuration
 local default_config = {
-    blockMinForwardDistance = 10.0,    -- Minimum forward distance (cm)
-    blockMaxForwardDistance = 40.0,    -- Maximum forward distance (cm)
-    requirePalmOutward = true,         -- Hand must face away from HMD
-    palmDotThreshold = 0.0,            -- How strict the palm check is (more negative = stricter)
-    blockHand = 0,                     -- Primary blocking hand (0 = Left, 1 = Right)
-    enableTwoHandedBlock = false,      -- If true, requires BOTH hands in position
-    twoHandedMaxDistance = 50.0,       -- Max distance between hands for two-handed block (cm)
+    blockMinForwardDistance = 10.0,    
+    blockMaxForwardDistance = 40.0,   
+    requirePalmOutward = true,         
+    palmDotThreshold = 0.0,           
+    blockHand = 0,                    
+    enableTwoHandedBlock = false,      
+    twoHandedMaxDistance = 50.0,     
 }
 
--- Current configuration (will be loaded from file if exists)
 local config = {}
 for k, v in pairs(default_config) do
     config[k] = v
 end
--- Convert blockHand from number to enum
+
 config.blockHand = Handed.Left
 
--- Save configuration to JSON file
 local function save_config()
-    -- Create a copy of config for saving
     local save_data = {}
     for k, v in pairs(config) do
         save_data[k] = v
     end
 
-    -- Convert blockHand enum to number for JSON
     save_data.blockHand = (config.blockHand == Handed.Left) and 0 or 1
 
     json.dump_file(config_filename .. ".json", save_data, 4)
 end
 
--- Load configuration from JSON file
 local function load_config()
     local loaded_config = json.load_file(config_filename .. ".json")
 
     if loaded_config then
-        -- Merge loaded config with current config
         for k, v in pairs(loaded_config) do
             if k == "blockHand" then
-                -- Convert number back to enum
                 config[k] = (v == 0) and Handed.Left or Handed.Right
             else
                 config[k] = v
@@ -61,7 +49,6 @@ local function load_config()
     end
 end
 
--- Load config at startup
 load_config()
 
 local blockState = {
@@ -133,10 +120,8 @@ local function checkHandBlocking(hand_index, hmd_pos, hmd_rot, hmd_forward)
     return true
 end
 
--- Performance optimization flag
 local ENABLE_POSE_DEDUPLICATION = true
 
--- Pose cache for gesture detection (Optimization 4)
 local gesturePoseCache = {
     leftPos = nil,
     leftRot = nil,
@@ -158,11 +143,9 @@ local function detectBlockGesture()
     local hmd_forward = quatToForward(hmd_rot)
 
     if config.enableTwoHandedBlock then
-        -- TWO-HANDED BLOCKING MODE
         local left_index = vr.get_left_controller_index()
         local right_index = vr.get_right_controller_index()
 
-        -- Cache poses for reuse (Optimization 4)
         if ENABLE_POSE_DEDUPLICATION then
             gesturePoseCache.leftPos = UEVR_Vector3f.new()
             gesturePoseCache.leftRot = UEVR_Quaternionf.new()
@@ -178,7 +161,6 @@ local function detectBlockGesture()
 
         if leftBlocking and rightBlocking then
             if config.twoHandedMaxDistance > 0 then
-                -- Use cached poses instead of re-querying (Optimization 4)
                 local left_pos, right_pos
                 if ENABLE_POSE_DEDUPLICATION then
                     left_pos = gesturePoseCache.leftPos
@@ -211,7 +193,6 @@ local function detectBlockGesture()
         return false
 
     else
-        -- SINGLE-HANDED BLOCKING MODE
         local hand_index = config.blockHand == Handed.Left and vr.get_left_controller_index() or vr.get_right_controller_index()
         blockState.isTwoHandedBlock = false
         return checkHandBlocking(hand_index, hmd_pos, hmd_rot, hmd_forward)
@@ -339,11 +320,9 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
     imgui.separator()
     imgui.spacing()
 
-    -- Quick Presets
     imgui.text("=== QUICK PRESETS ===")
     
     if imgui.button("Default") then
-        -- Reset to defaults
         for k, v in pairs(default_config) do
             if k == "blockHand" then
                 config[k] = Handed.Left
@@ -357,7 +336,6 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
     imgui.same_line()
 
     if imgui.button("Tight Block (Close Range)") then
-        -- Reset to defaults first
         for k, v in pairs(default_config) do
             if k == "blockHand" then
                 config[k] = Handed.Left
@@ -365,7 +343,6 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
                 config[k] = v
             end
         end
-        -- Apply tight block settings
         config.blockMaxForwardDistance = 30.0
         config.palmDotThreshold = -0.2
         save_config()
@@ -374,7 +351,6 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
     imgui.same_line()
 
     if imgui.button("Loose Block (Wide Range)") then
-        -- Reset to defaults first
         for k, v in pairs(default_config) do
             if k == "blockHand" then
                 config[k] = Handed.Left
@@ -382,7 +358,6 @@ uevr.lua.add_script_panel("Gesture based blocking", function()
                 config[k] = v
             end
         end
-        -- Apply loose block settings
         config.blockMaxForwardDistance = 60.0
         config.palmDotThreshold = 0.2
         save_config()
